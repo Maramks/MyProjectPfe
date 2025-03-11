@@ -40,3 +40,25 @@ class Utilisateur(models.Model):
 
     def __str__(self):
         return f"Utilisateur: {self.email}"
+    
+class Agence(models.Model):
+    nom = models.CharField(max_length=255)
+    adresse = models.TextField()
+    telephone = models.CharField(max_length=20)
+    latitude = models.FloatField()
+    longitude = models.FloatField()
+
+    def __str__(self):
+        return self.nom
+    
+
+
+class Admin(models.Model):
+    matricule = models.IntegerField(unique=True)  # Matricule de l'administrateur (champ entier)
+    email = models.EmailField(null=True)  # Email de l'administrateur
+    numéro_téléphone = models.CharField(max_length=20, null=True)  # Numéro de téléphone
+    nom = models.CharField(max_length=100, null=True)  # Nom de l'administrateur
+    prénom = models.CharField(max_length=100, null=True)  # Prénom de l'administrateur
+    
+    def __str__(self):
+        return f"Admin: {self.matricule} - {self.nom} {self.prénom}"
