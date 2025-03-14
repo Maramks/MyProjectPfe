@@ -158,14 +158,16 @@ import pytesseract
 from django.http import JsonResponse
 from rest_framework.decorators import api_view
 from django.conf import settings
-
+import pytesseract
+import re
 # Définir le chemin de l'image navbar en utilisant BASE_DIR
-NAVBAR_IMAGE_PATH = os.path.join(settings.BASE_DIR, "static", "maram.jpg")
+NAVBAR_IMAGE_PATH = os.path.join(settings.BASE_DIR, "static", "m.jpg")
 
 # Vérifier si l'image du navbar existe
 if not os.path.exists(NAVBAR_IMAGE_PATH):
     raise FileNotFoundError(f"Image de navbar non trouvée : {NAVBAR_IMAGE_PATH}")
 
+# Fonction pour détecter le navbar avec ORB et FLANN
 # Fonction pour détecter le navbar avec ORB et FLANN
 def detect_navbar_with_orb(image):
     try:
@@ -204,14 +206,37 @@ def detect_navbar_with_orb(image):
         # Si assez de bonnes correspondances sont trouvées
         if len(good_matches) > 15:  # Augmenter le seuil pour avoir plus de correspondances
             print(f"Navbar détecté avec {len(good_matches)} bonnes correspondances.")
+            
             # Dessiner les correspondances sur l'image
             img_matches = cv2.drawMatches(navbar_ref, kp1, image, kp2, good_matches, None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
             
             # Sauvegarder l'image annotée pour débogage
             debug_image_path = os.path.join(settings.BASE_DIR, "static", "debug_navbar_detected_orb.jpg")
             cv2.imwrite(debug_image_path, img_matches)
-            
-            return True, debug_image_path
+
+            # Récupérer les points correspondants
+            src_pts = np.float32([kp1[m.queryIdx].pt for m in good_matches]).reshape(-1, 1, 2)
+            dst_pts = np.float32([kp2[m.trainIdx].pt for m in good_matches]).reshape(-1, 1, 2)
+
+            # Trouver la transformation (homographie)
+            M, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
+
+            if M is not None:
+                h, w = navbar_ref.shape
+                pts = np.float32([[0, 0], [0, h], [w, h], [w, 0]]).reshape(-1, 1, 2)
+                dst = cv2.perspectiveTransform(pts, M)
+
+                # Dessiner un polygone noir sur la zone détectée pour masquer le navbar
+                mask = np.zeros_like(image)
+                cv2.fillPoly(mask, [np.int32(dst)], (0, 0, 0))
+                masked_image = cv2.bitwise_and(image, mask)
+
+                # Sauvegarder l'image masquée pour débogage
+                masked_image_path = os.path.join(settings.BASE_DIR, "static", "navbar_masked.jpg")
+                cv2.imwrite(masked_image_path, masked_image)
+
+                return True, masked_image_path  # Retourner l'image avec le navbar masqué
+
         else:
             print("Pas assez de bonnes correspondances pour détecter le navbar.")
             return False, None
@@ -219,20 +244,42 @@ def detect_navbar_with_orb(image):
     except Exception as e:
         print(f"Erreur dans la détection du navbar avec ORB: {e}")
         return False, None
-
 # Fonction pour extraire le texte sans le navbar
-def extract_text_from_other_regions(image):
-    try:
-        height, width = image.shape[:2]
-        image_without_navbar = image[height // 3:, :]  # Découpe l'image sous le navbar
+# Fonction pour améliorer l'image avant l'OCR
+def preprocess_image(image):
+    """Améliore la qualité de l'image pour la reconnaissance OCR."""
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)  # Conversion en niveaux de gris
+    blurred = cv2.GaussianBlur(gray, (3, 3), 0)  # Réduction du bruit
+    _, binary = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)  # Binarisation
+    
+    # Appliquer une ouverture morphologique pour enlever le bruit
+    kernel = np.ones((2,2), np.uint8)
+    cleaned = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel, iterations=1)
+    
+    return cleaned
+# Fonction pour extraire le numéro de CIN depuis l'image
+def extract_cin_number(image):
+    """
+    Extrait un numéro CIN de 8 chiffres alignés horizontalement d'une image.
+    """
+    # Prétraiter l'image pour améliorer la qualité de l'extraction
+    preprocessed_image = preprocess_image(image)
 
-        # Appliquer Tesseract pour extraire le texte de la partie restante
-        extracted_text = pytesseract.image_to_string(image_without_navbar)
-        return extracted_text.strip()
-    except Exception as e:
-        print(f"Erreur dans l'extraction du texte: {e}")
-        return ""
+    # Utiliser Tesseract pour extraire tout le texte avec des configurations pour les chiffres
+    extracted_text = pytesseract.image_to_string(preprocessed_image, lang='eng', config='--psm 6')
 
+    # 🔍 Debug : Afficher le texte brut extrait par Tesseract
+    print(f"Texte extrait brut par Tesseract : {extracted_text}")
+
+    # Utiliser une expression régulière pour extraire un numéro CIN de 8 chiffres consécutifs
+    match = re.search(r'\b\d{8}\b', extracted_text)
+
+    # Si un numéro CIN est trouvé
+    if match:
+        return match.group(0)  # Retourne le numéro CIN trouvé
+    else:
+        return "Numéro CIN non trouvé"
+    
 @api_view(['POST'])
 def detect_cin(request):
     try:
@@ -253,16 +300,19 @@ def detect_cin(request):
         is_navbar_detected, debug_image_path = detect_navbar_with_orb(image)
 
         if not is_navbar_detected:
-            return JsonResponse({"status": "error", "is_cin": False, "message": "Navbar non détecté, ce n'est pas une CIN"})
+            return JsonResponse({
+                "status": "error",
+                "is_cin": False,
+                "message": "Navbar non détecté, ce n'est pas une CIN."
+            }, status=400)
 
-        # Extraction du texte (ajustée pour ignorer la partie navbar)
-        extracted_text = extract_text_from_other_regions(image)
-
+        # Extraction du texte (en ignorant la partie navbar)
+        cin_number = extract_cin_number(image)
         return JsonResponse({
             "status": "success",
             "is_cin": True,
-            "extracted_text": extracted_text,
-            "debug_image": debug_image_path  # Vous pouvez voir l'image avec la détection du navbar ici
+           "cin_number": cin_number,
+            "debug_image": debug_image_path  # Chemin de l'image avec la détection du navbar
         })
 
     except Exception as e:
