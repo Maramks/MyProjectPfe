@@ -18,12 +18,16 @@ from django.contrib import admin
 from django.urls import path, include
 from rest_framework import routers
 from reconnaissance import views  # Remplace par ton fichier views
-
+from reconnaissance.views import AgenceViewSet
+from reconnaissance.views import ImageBlurDetectionView 
+from reconnaissance.views import detect_cin
 # Créer un routeur pour enregistrer les vues API
 router = routers.DefaultRouter()
 router.register(r'admins', views.AdminViewSet)  # Assure-toi que 'AdminViewSet' est bien défini dans 'views.py'
-
+router.register(r'agences', AgenceViewSet, basename='agence')
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', include(router.urls)),
+   path('check-blur/', ImageBlurDetectionView.as_view(), name='check-blur'),
+path('detect-cin/', detect_cin, name='detect_cin'),
 ]

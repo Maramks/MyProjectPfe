@@ -84,7 +84,7 @@ WSGI_APPLICATION = 'MyProjectPfe.wsgi.application'
 DATABASES = {
      'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'banque_cin',  # Nom de la base de données MySQL
+        'NAME': 'banque_bna',  # Nom de la base de données MySQL
         'USER': 'root',              # Utilisateur MySQL (modifie si nécessaire)
         'PASSWORD': '98700700',  # Ton mot de passe MySQL
         'HOST': 'localhost',         # Host de la base de données
@@ -128,6 +128,12 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.1/howto/static-files/
 
 STATIC_URL = 'static/'
+import os
+
+STATICFILES_DIRS = [
+    os.path.join(BASE_DIR, 'static'),
+]
+
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field

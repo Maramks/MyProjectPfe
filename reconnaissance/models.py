@@ -1,5 +1,5 @@
 from django.db import models
-
+from datetime import datetime
 class CarteCINTemp(models.Model):
     numero_cin = models.CharField(max_length=20, unique=True, db_column='رقم_البطاقة')  # Numéro de CIN
     nom = models.CharField(max_length=100, db_column='الاسم')  # Nom (correspond à الاسم en arabe)
@@ -41,16 +41,48 @@ class Utilisateur(models.Model):
     def __str__(self):
         return f"Utilisateur: {self.email}"
     
+
+
 class Agence(models.Model):
     nom = models.CharField(max_length=255)
-    adresse = models.TextField()
-    telephone = models.CharField(max_length=20)
-    latitude = models.FloatField()
-    longitude = models.FloatField()
+    adresse = models.CharField(max_length=255)
+    latitude = models.DecimalField(max_digits=9, decimal_places=6)
+    longitude = models.DecimalField(max_digits=9, decimal_places=6)
+    telephone = models.CharField(max_length=20, blank=True, null=True)
+
+    horaire_debut = models.TimeField(default='08:00:00')  # Heure d'ouverture
+    horaire_fin = models.TimeField(default='16:00:00')    # Heure de fermeture
+    jours_ouverture = models.CharField(max_length=255, default='Lundi-Vendredi')  # Jours d'ouverture
+    statut = models.CharField(max_length=10, choices=[('Ouvert', 'Ouvert'), ('Fermé', 'Fermé')], default='Fermé')
 
     def __str__(self):
         return self.nom
-    
+
+    def est_ouvert(self):
+        # Obtenir l'heure et le jour actuels
+        now = datetime.now()
+        current_time = now.hour * 60 + now.minute  # Convertir en minutes
+
+        # Convertir les horaires en minutes
+        opening_time = self.horaire_debut.hour * 60 + self.horaire_debut.minute
+        closing_time = self.horaire_fin.hour * 60 + self.horaire_fin.minute
+
+        # Récupérer le jour actuel (ex: 'Lundi')
+        jours_semaine = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
+        current_day = jours_semaine[now.weekday()]
+
+        # Vérifier si l'agence est ouverte aujourd'hui et à cette heure
+        jours_ouvrables = self.jours_ouverture.split('-')  # Ex: ['Lundi', 'Vendredi']
+        
+        if current_day in jours_ouvrables and opening_time <= current_time <= closing_time:
+            return 'Ouvert'
+        return 'Fermé'
+
+    def save(self, *args, **kwargs):
+        # Mettre à jour le statut avant de sauvegarder
+        self.statut = self.est_ouvert()
+        super().save(*args, **kwargs)  # Appel à la méthode save() du modèle parent
+
 
 
 class Admin(models.Model):
